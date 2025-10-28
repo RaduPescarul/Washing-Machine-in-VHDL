@@ -1,0 +1,37 @@
+#-----------------------------------------------------------
+# Vivado v2024.2.1 (64-bit)
+# SW Build 5239630 on Fri Nov 08 22:35:27 MST 2024
+# IP Build 5264866 on Sun Dec 15 16:27:47 MST 2024
+# SharedData Build 5264680 on Wed Dec 11 12:48:36 MST 2024
+# Start of session at: Wed Jun  4 02:02:10 2025
+# Process ID         : 19388
+# Current directory  : D:/Radu/project_WashingMachine
+# Command line       : vivado.exe -gui_launcher_event rodinguilauncherevent46800 D:\Radu\project_WashingMachine\project_WashingMachine.xpr
+# Log file           : D:/Radu/project_WashingMachine/vivado.log
+# Journal file       : D:/Radu/project_WashingMachine\vivado.jou
+# Running On         : laptop-dell1
+# Platform           : Windows Server 2016 or Windows 10
+# Operating System   : 19045
+# Processor Detail   : Intel(R) Core(TM) i5-1035G1 CPU @ 1.00GHz
+# CPU Frequency      : 1190 MHz
+# CPU Physical cores : 4
+# CPU Logical cores  : 8
+# Host memory        : 8345 MB
+# Swap memory        : 15337 MB
+# Total Virtual      : 23683 MB
+# Available Virtual  : 11260 MB
+#-----------------------------------------------------------
+start_gui
+open_project D:/Radu/project_WashingMachine/project_WashingMachine.xpr
+update_compile_order -fileset sources_1
+open_hw_manager
+connect_hw_server -allow_non_jtag
+open_hw_target
+set_property PROGRAM.FILE {D:/Radu/project_WashingMachine/project_WashingMachine.runs/impl_1/washing_machine_controller.bit} [get_hw_devices xc7a100t_0]
+current_hw_device [get_hw_devices xc7a100t_0]
+refresh_hw_device -update_hw_probes false [lindex [get_hw_devices xc7a100t_0] 0]
+set_property PROBES.FILE {} [get_hw_devices xc7a100t_0]
+set_property FULL_PROBES.FILE {} [get_hw_devices xc7a100t_0]
+set_property PROGRAM.FILE {D:/Radu/project_WashingMachine/project_WashingMachine.runs/impl_1/washing_machine_controller.bit} [get_hw_devices xc7a100t_0]
+program_hw_devices [get_hw_devices xc7a100t_0]
+refresh_hw_device [lindex [get_hw_devices xc7a100t_0] 0]

@@ -1,0 +1,1115 @@
+mode_selector:
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity mode_selector is
+    Port (
+        clk : in STD_LOGIC;
+        reset : in STD_LOGIC;
+        machine_on : in STD_LOGIC;
+        select_btn : in STD_LOGIC;
+        mode : out STD_LOGIC_VECTOR(2 downto 0)
+    );
+end mode_selector;
+
+architecture Behavioral of mode_selector is
+    signal current_mode : STD_LOGIC_VECTOR(2 downto 0) := "000";
+begin
+
+    process(clk, reset)
+    begin
+        if reset = '1' then
+            current_mode <= "000"; 
+        elsif rising_edge(clk) then
+            if machine_on = '0' then
+                current_mode <= "000";  
+            elsif select_btn = '1' then
+                -- modes: Manual-> Quick wash-> Shirts->Dark colors->Dirty laundry->Antiallergic-> Manual
+                case current_mode is
+                  when "000" => current_mode <= "001";  -- manual (000) -> quick wash (001)
+                when "001" => current_mode <= "010";  -- quick wash (001) -> shirts (010)
+                when "010" => current_mode <= "011";  -- shirts (010) -> dark colors (011)
+                when "011" => current_mode <= "100";  -- dark colors (011) -> dirty laundry (100)
+                when "100" => current_mode <= "101";  -- dirty laundry (100) -> antiallergic (101)
+                when "101" => current_mode <= "000";  -- antiallergic (101) -> manual (000)
+                when others => current_mode <= "000"; -- default to manual
+                end case;
+            end if;
+        end if;
+    end process;
+    
+    mode <= current_mode;
+
+end Behavioral;
+
+parameter_controller:
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity parameter_controller is
+    Port (
+        clk          : in  STD_LOGIC;
+        reset        : in  STD_LOGIC;
+        mode         : in  STD_LOGIC_VECTOR(2 downto 0);
+        switches     : in  STD_LOGIC_VECTOR(10 downto 0);
+        temp         : out STD_LOGIC_VECTOR(1 downto 0);
+        speed        : out STD_LOGIC_VECTOR(1 downto 0);
+        prewash      : out STD_LOGIC;
+        extra_rinse  : out STD_LOGIC;
+        params_valid : out STD_LOGIC
+    );
+end parameter_controller;
+
+architecture Behavioral of parameter_controller is
+    signal temp_internal       : STD_LOGIC_VECTOR(1 downto 0) := "00";
+    signal speed_internal      : STD_LOGIC_VECTOR(1 downto 0) := "00";
+    signal prewash_internal    : STD_LOGIC := '0';
+    signal extra_rinse_internal : STD_LOGIC := '0';
+    signal temp_valid          : STD_LOGIC := '0';
+    signal speed_valid         : STD_LOGIC := '0';
+    
+  -- how many temperature and speed switches are active
+    signal temp_switch_count : integer range 0 to 4;
+    signal speed_switch_count : integer range 0 to 3;
+
+begin
+
+  --count active switches
+ -- manual mode operation by ensuring the user selects exactly one temperature and one speed switch
+    process(switches)
+        variable temp_count : integer range 0 to 4;
+        variable speed_count : integer range 0 to 3;
+    begin
+        -- count temperature switches (SW2, SW3, SW4, SW5)
+        temp_count := 0;
+        if switches(2) = '1' then temp_count := temp_count + 1; end if;
+        if switches(3) = '1' then temp_count := temp_count + 1; end if;
+        if switches(4) = '1' then temp_count := temp_count + 1; end if;
+        if switches(5) = '1' then temp_count := temp_count + 1; end if;
+        temp_switch_count <= temp_count;
+        
+      --count speed switches (SW6, SW7, SW8)
+        speed_count := 0;
+        if switches(6) = '1' then speed_count := speed_count + 1; end if;
+        if switches(7) = '1' then speed_count := speed_count + 1; end if;
+        if switches(8) = '1' then speed_count := speed_count + 1; end if;
+        speed_switch_count <= speed_count;
+    end process;
+
+    process(clk, reset)
+    begin
+        if reset = '1' then
+            temp_internal        <= "00";
+            speed_internal       <= "00";
+            prewash_internal     <= '0';
+            extra_rinse_internal <= '0';
+            temp_valid           <= '0';
+            speed_valid          <= '0';
+
+        elsif rising_edge(clk) then
+            temp_valid  <= '0';
+            speed_valid <= '0';
+
+            case mode is
+                when "000" => 
+                    --only allow ONE switch to be active
+                    if temp_switch_count = 1 then
+                        temp_valid <= '1';
+                        if switches(2) = '1' then
+                            temp_internal <= "00";  -- 30 C 
+                        elsif switches(3) = '1' then
+                            temp_internal <= "01";  -- 40 C 
+                        elsif switches(4) = '1' then
+                            temp_internal <= "10";  -- 60 C 
+                        elsif switches(5) = '1' then
+                            temp_internal <= "11";  -- 90 C
+                        end if;
+                    else
+                        temp_valid <= '0';
+                    end if;
+
+                    -- ONE switch to be active
+                    if speed_switch_count = 1 then
+                        speed_valid <= '1';
+                        if switches(6) = '1' then
+                            speed_internal <= "00";  -- 800 rpm 
+                        elsif switches(7) = '1' then
+                            speed_internal <= "01";  -- 1000 rpm 
+                        elsif switches(8) = '1' then
+                            speed_internal <= "10";  -- 1200 rpm
+                        end if;
+                    else
+                        speed_valid <= '0';
+                    end if;
+
+                    -- optional features 
+                    prewash_internal     <= switches(9);   --SW9
+                    extra_rinse_internal <= switches(10);  -- SW10
+
+                when "001" =>  -- quick wash: 30 C, 1200rpm, no extras
+                    temp_internal        <= "00";  -- 30 C
+                    speed_internal       <= "10";  -- 1200rpm
+                    prewash_internal     <= '0';
+                    extra_rinse_internal <= '0';
+                    temp_valid           <= '1';
+                    speed_valid          <= '1';
+
+                when "010" =>  -- shirts: 60 C, 800rpm, no extras
+                    temp_internal        <= "10";  -- 60 C
+                    speed_internal       <= "00";  -- 800rpm
+                    prewash_internal     <= '0';
+                    extra_rinse_internal <= '0';
+                    temp_valid           <= '1';
+                    speed_valid          <= '1';
+
+                when "011" =>  -- drk colors: 40 C, 1000rpm, extra rinse
+                    temp_internal        <= "01";  -- 40 C
+                    speed_internal       <= "01";  -- 1000rpm
+                    prewash_internal     <= '0';
+                    extra_rinse_internal <= '1';
+                    temp_valid           <= '1';
+                    speed_valid          <= '1';
+
+                when "100" =>  -- dirty laundry: 40 C, 1000rpm, prewash
+                    temp_internal        <= "01";  -- 40 C
+                    speed_internal       <= "01";  -- 1000rpm
+                    prewash_internal     <= '1';
+                    extra_rinse_internal <= '0';
+                    temp_valid           <= '1';
+                    speed_valid          <= '1';
+
+                when "101" =>  -- antiallergic: 90 C, 1200rpm, extra rinse
+                    temp_internal        <= "11";  -- 90 C
+                    speed_internal       <= "10";  -- 1200rpm
+                    prewash_internal     <= '0';
+                    extra_rinse_internal <= '1';
+                    temp_valid           <= '1';
+                    speed_valid          <= '1';
+
+                when others =>
+                    temp_internal        <= "00";
+                    speed_internal       <= "00";
+                    prewash_internal     <= '0';
+                    extra_rinse_internal <= '0';
+                    temp_valid           <= '0';
+                    speed_valid          <= '0';
+            end case;
+        end if;
+    end process;
+
+    temp         <= temp_internal;
+    speed        <= speed_internal;
+    prewash      <= prewash_internal;
+    extra_rinse  <= extra_rinse_internal;
+    params_valid <= temp_valid and speed_valid;
+
+end Behavioral;
+
+time_calculator:
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity time_calculator is
+    Port (
+        clk : in STD_LOGIC;
+        reset : in STD_LOGIC;
+        temp : in STD_LOGIC_VECTOR(1 downto 0);
+        speed : in STD_LOGIC_VECTOR(1 downto 0);
+        prewash : in STD_LOGIC;
+        extra_rinse : in STD_LOGIC;
+        calculate : in STD_LOGIC;
+        total_time : out STD_LOGIC_VECTOR(15 downto 0)
+    );
+end time_calculator;
+
+architecture Behavioral of time_calculator is
+    signal calculated_time : unsigned(15 downto 0) := (others => '0');
+begin
+    process(clk, reset)
+        variable temp_time : unsigned(15 downto 0);
+        variable speed_time : unsigned(15 downto 0);
+        variable time_sum  : unsigned(15 downto 0);
+    begin
+        if reset = '1' then
+            calculated_time <= (others => '0');
+        elsif rising_edge(clk) then
+            if calculate = '1' then
+                time_sum := to_unsigned(60, 16); -- 1 minute base
+
+                -- heating time based on temperature
+                case temp is
+                    when "00" => temp_time := to_unsigned(5, 16);   -- 30 C
+                    when "01" => temp_time := to_unsigned(10, 16);  -- 40 C
+                    when "10" => temp_time := to_unsigned(15, 16);  -- 60 C
+                    when "11" => temp_time := to_unsigned(20, 16);  -- 90 C
+                    when others => temp_time := to_unsigned(5, 16);
+                end case;
+
+                time_sum := time_sum + temp_time; -- main heating time
+
+                -- speed adjustment (higher speed = slightly longer spin time)
+                case speed is
+                    when "00" => speed_time := to_unsigned(0, 16);   -- 800 rpm 
+                    when "01" => speed_time := to_unsigned(2, 16);   -- 1000 rpm (+2 sec)
+                    when "10" => speed_time := to_unsigned(5, 16);   -- 1200 rpm (+5 sec)
+                    when others => speed_time := to_unsigned(0, 16);
+                end case;
+
+                time_sum := time_sum + speed_time;
+
+                --prewash
+                if prewash = '1' then
+                    time_sum := time_sum + temp_time + to_unsigned(15, 16);
+                end if;
+
+                -- extra rinse
+                if extra_rinse = '1' then
+                    time_sum := time_sum + to_unsigned(10, 16);
+                end if;
+
+        --final time
+                calculated_time <= time_sum;
+            end if;
+        end if;
+    end process;
+
+    total_time <= std_logic_vector(calculated_time);
+end Behavioral;
+
+ wash_program_fsm:
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity wash_program_fsm is
+    Port (
+        clk : in STD_LOGIC;
+        reset : in STD_LOGIC;
+        start_program : in STD_LOGIC;
+        pulse_1s : in STD_LOGIC;
+        temp : in STD_LOGIC_VECTOR(1 downto 0);
+        prewash : in STD_LOGIC;
+        extra_rinse : in STD_LOGIC;
+        door_closed : in STD_LOGIC;
+        params_valid : in STD_LOGIC;
+        total_time : in STD_LOGIC_VECTOR(15 downto 0);
+
+        program_running : out STD_LOGIC;
+        door_locked : out STD_LOGIC;
+        program_done : out STD_LOGIC;
+        current_phase : out STD_LOGIC_VECTOR(3 downto 0);
+        time_remaining : out STD_LOGIC_VECTOR(15 downto 0);
+
+        water_inlet : out STD_LOGIC;
+        water_outlet : out STD_LOGIC;
+        heater_on : out STD_LOGIC;
+        motor_speed : out STD_LOGIC_VECTOR(1 downto 0)
+    );
+end wash_program_fsm;
+
+architecture Behavioral of wash_program_fsm is
+    type state_type is (
+        IDLE,
+        PREWASH_FILL, PREWASH_HEAT, PREWASH_WASH, PREWASH_DRAIN,
+        MAIN_FILL, MAIN_HEAT, MAIN_WASH, MAIN_DRAIN,
+        RINSE_FILL, RINSE_WASH, RINSE_DRAIN,
+        EXTRA_RINSE_FILL, EXTRA_RINSE_WASH, EXTRA_RINSE_DRAIN,
+        SPIN,
+        DOOR_UNLOCK_DELAY,
+        COMPLETE
+    );
+
+    signal current_state : state_type := IDLE;
+    signal phase_timer : unsigned(15 downto 0) := (others => '0');
+    signal total_time_remaining : unsigned(15 downto 0) := (others => '0');
+    
+    -- ADD: Edge detection for start_program button
+    signal start_program_prev : STD_LOGIC := '0';
+    signal start_program_edge : STD_LOGIC := '0';
+
+    constant C_FILL_TIME      : unsigned(15 downto 0) := to_unsigned(2, 16);
+    constant C_DRAIN_TIME     : unsigned(15 downto 0) := to_unsigned(2, 16);
+    constant C_PREWASH_TIME   : unsigned(15 downto 0) := to_unsigned(3, 16);
+    constant C_MAIN_WASH_TIME : unsigned(15 downto 0) := to_unsigned(5, 16);
+    constant C_RINSE_TIME     : unsigned(15 downto 0) := to_unsigned(3, 16);
+    constant C_SPIN_TIME      : unsigned(15 downto 0) := to_unsigned(3, 16);
+    constant C_UNLOCK_DELAY   : unsigned(15 downto 0) := to_unsigned(60, 16);
+    
+    -- heating time constants based on temperature
+    signal heating_time : unsigned(15 downto 0);
+
+begin
+    -- calculate heating time based on temperature
+    process(temp)
+    begin
+        case temp is
+            when "00" => heating_time <= to_unsigned(3, 16);   -- 30 C: 3 seconds
+            when "01" => heating_time <= to_unsigned(5, 16);   -- 40 C: 5 seconds
+            when "10" => heating_time <= to_unsigned(9, 16);   -- 60 C: 9 seconds
+            when "11" => heating_time <= to_unsigned(15, 16);  -- 90 C: 15 seconds
+            when others => heating_time <= to_unsigned(3, 16);
+        end case;
+    end process;
+
+    -- ADD: Edge detection process
+    process(clk, reset)
+    begin
+        if reset = '1' then
+            start_program_prev <= '0';
+            start_program_edge <= '0';
+        elsif rising_edge(clk) then
+            start_program_prev <= start_program;
+            start_program_edge <= start_program and not start_program_prev;
+        end if;
+    end process;
+
+    -- FIXED: Main FSM process
+    process(clk, reset)
+    begin
+        if reset = '1' then
+            current_state <= IDLE;
+            phase_timer <= (others => '0');
+            total_time_remaining <= (others => '0');
+        elsif rising_edge(clk) then
+            
+            -- FIXED: Handle IDLE state separately (outside pulse_1s)
+            case current_state is
+                when IDLE =>
+                    -- FIXED: Use edge detection and check every clock cycle
+                    if start_program_edge = '1' and door_closed = '1' and params_valid = '1' then
+                        total_time_remaining <= unsigned(total_time);
+                        if prewash = '1' then
+                            current_state <= PREWASH_FILL;
+                            phase_timer <= C_FILL_TIME;
+                        else
+                            current_state <= MAIN_FILL;
+                            phase_timer <= C_FILL_TIME;
+                        end if;
+                    end if;
+
+                when COMPLETE =>
+                    -- FIXED: Check door status every clock cycle for immediate response
+                    if door_closed = '0' then 
+                        current_state <= IDLE; 
+                    end if;
+
+                -- FIXED: All other states only operate on 1-second pulse
+                when others =>
+                    if pulse_1s = '1' then
+                        -- Countdown timers
+                        if phase_timer > 0 then
+                            phase_timer <= phase_timer - 1;
+                        end if;
+
+                        if total_time_remaining > 0 then
+                            total_time_remaining <= total_time_remaining - 1;
+                        end if;
+
+                        -- State transitions
+                        case current_state is
+                            when PREWASH_FILL => 
+                                if phase_timer = 0 then 
+                                    current_state <= PREWASH_HEAT; 
+                                    phase_timer <= heating_time;
+                                end if;
+                                
+                            when PREWASH_HEAT => 
+                                if phase_timer = 0 then
+                                    current_state <= PREWASH_WASH;
+                                    phase_timer <= C_PREWASH_TIME;
+                                end if;
+
+                            when PREWASH_WASH => 
+                                if phase_timer = 0 then 
+                                    current_state <= PREWASH_DRAIN; 
+                                    phase_timer <= C_DRAIN_TIME; 
+                                end if;
+                                
+                            when PREWASH_DRAIN => 
+                                if phase_timer = 0 then 
+                                    current_state <= MAIN_FILL; 
+                                    phase_timer <= C_FILL_TIME; 
+                                end if;
+
+                            when MAIN_FILL => 
+                                if phase_timer = 0 then 
+                                    current_state <= MAIN_HEAT; 
+                                    phase_timer <= heating_time;
+                                end if;
+                                
+                            when MAIN_HEAT => 
+                                if phase_timer = 0 then
+                                    current_state <= MAIN_WASH;
+                                    phase_timer <= C_MAIN_WASH_TIME;
+                                end if;
+
+                            when MAIN_WASH => 
+                                if phase_timer = 0 then 
+                                    current_state <= MAIN_DRAIN; 
+                                    phase_timer <= C_DRAIN_TIME; 
+                                end if;
+                                
+                            when MAIN_DRAIN => 
+                                if phase_timer = 0 then 
+                                    current_state <= RINSE_FILL; 
+                                    phase_timer <= C_FILL_TIME; 
+                                end if;
+
+                            when RINSE_FILL => 
+                                if phase_timer = 0 then 
+                                    current_state <= RINSE_WASH; 
+                                    phase_timer <= C_RINSE_TIME; 
+                                end if;
+                                
+                            when RINSE_WASH => 
+                                if phase_timer = 0 then 
+                                    current_state <= RINSE_DRAIN; 
+                                    phase_timer <= C_DRAIN_TIME; 
+                                end if;
+                                
+                            when RINSE_DRAIN =>
+                                if phase_timer = 0 then
+                                    if extra_rinse = '1' then
+                                        current_state <= EXTRA_RINSE_FILL;
+                                        phase_timer <= C_FILL_TIME;
+                                    else
+                                        current_state <= SPIN;
+                                        phase_timer <= C_SPIN_TIME;
+                                    end if;
+                                end if;
+
+                            when EXTRA_RINSE_FILL => 
+                                if phase_timer = 0 then 
+                                    current_state <= EXTRA_RINSE_WASH; 
+                                    phase_timer <= C_RINSE_TIME; 
+                                end if;
+                                
+                            when EXTRA_RINSE_WASH => 
+                                if phase_timer = 0 then 
+                                    current_state <= EXTRA_RINSE_DRAIN; 
+                                    phase_timer <= C_DRAIN_TIME; 
+                                end if;
+                                
+                            when EXTRA_RINSE_DRAIN => 
+                                if phase_timer = 0 then 
+                                    current_state <= SPIN; 
+                                    phase_timer <= C_SPIN_TIME; 
+                                end if;
+
+                            when SPIN => 
+                                if phase_timer = 0 then 
+                                    current_state <= DOOR_UNLOCK_DELAY; 
+                                    phase_timer <= C_UNLOCK_DELAY; 
+                                end if;
+                                
+                            when DOOR_UNLOCK_DELAY => 
+                                if phase_timer = 0 then 
+                                    current_state <= COMPLETE; 
+                                end if;
+                                
+                            when COMPLETE => 
+                                -- FIXED: Check door status every clock cycle, not just on pulse_1s
+                                null; -- Do nothing in pulse_1s for COMPLETE state
+                                
+                            when others => 
+                                current_state <= IDLE;
+                        end case;
+                    end if;
+            end case;
+        end if;
+    end process;
+
+    -- Outputs
+    program_running <= '1' when (current_state /= IDLE and current_state /= COMPLETE) else '0';
+    door_locked <= '1' when (current_state /= IDLE and current_state /= COMPLETE) else '0';
+    program_done <= '1' when (current_state = DOOR_UNLOCK_DELAY or current_state = COMPLETE) else '0';
+    time_remaining <= std_logic_vector(total_time_remaining);
+
+    -- phase encoding
+    with current_state select current_phase <=
+        "0000" when IDLE,
+        "0001" when PREWASH_FILL,
+        "0010" when PREWASH_HEAT,
+        "0011" when PREWASH_WASH,
+        "0100" when PREWASH_DRAIN,
+        "0101" when MAIN_FILL,
+        "0110" when MAIN_HEAT,
+        "0111" when MAIN_WASH,
+        "1000" when MAIN_DRAIN,
+        "1001" when RINSE_FILL,
+        "1010" when RINSE_WASH,
+        "1011" when RINSE_DRAIN,
+        "1100" when EXTRA_RINSE_FILL,
+        "1101" when EXTRA_RINSE_WASH,
+        "1110" when EXTRA_RINSE_DRAIN,
+        "1111" when SPIN,
+        "0000" when others;
+
+    -- Process control outputs
+    water_inlet <= '1' when (current_state = PREWASH_FILL or 
+                             current_state = MAIN_FILL or 
+                             current_state = RINSE_FILL or 
+                             current_state = EXTRA_RINSE_FILL) else '0';
+                             
+    water_outlet <= '1' when (current_state = PREWASH_DRAIN or 
+                              current_state = MAIN_DRAIN or 
+                              current_state = RINSE_DRAIN or 
+                              current_state = EXTRA_RINSE_DRAIN) else '0';
+                              
+    heater_on <= '1' when (current_state = PREWASH_HEAT or 
+                           current_state = MAIN_HEAT) else '0';
+
+    -- Motor speed control
+    with current_state select motor_speed <=
+        "01" when PREWASH_WASH,      -- 60 rpm equivalent
+        "01" when MAIN_WASH,         -- 60 rpm equivalent  
+        "10" when RINSE_WASH,        -- 120 rpm equivalent
+        "10" when EXTRA_RINSE_WASH,  -- 120 rpm equivalent
+        "11" when SPIN,              -- Selected high speed
+        "00" when others;            -- motor off
+
+end Behavioral;
+
+seven_segment_controller:
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity seven_segment_controller is
+    Port (
+        clk        : in STD_LOGIC;
+        reset      : in STD_LOGIC;
+        time_value : in STD_LOGIC_VECTOR(15 downto 0);
+        seg        : out STD_LOGIC_VECTOR(6 downto 0);
+        an         : out STD_LOGIC_VECTOR(3 downto 0)
+    );
+end seven_segment_controller;
+
+architecture Behavioral of seven_segment_controller is
+    signal refresh_counter : unsigned(19 downto 0) := (others => '0'); --counts continuously at 100MHz clock speed
+    signal digit_select     : unsigned(1 downto 0) := (others => '0');
+  --  "00 rightmost digit (seconds ones)
+   -- "01" seconds tens
+   -- "10" minutes ones
+  --  "11" leftmost digit (minutes tens)
+    signal current_digit    : STD_LOGIC_VECTOR(3 downto 0) := "0000";
+
+    signal min_tens, min_ones, sec_tens, sec_ones : STD_LOGIC_VECTOR(3 downto 0);
+
+--d is a decimal digit 
+    function digit_to_7seg (d : STD_LOGIC_VECTOR(3 downto 0)) return STD_LOGIC_VECTOR is
+    begin
+        case d is
+            when "0000" => return "1000000";  -- 0
+            when "0001" => return "1111001";  -- 1
+            when "0010" => return "0100100";  -- 2
+            when "0011" => return "0110000";  -- 3
+            when "0100" => return "0011001";  -- 4
+            when "0101" => return "0010010";  -- 5
+            when "0110" => return "0000010";  -- 6
+            when "0111" => return "1111000";  -- 7
+            when "1000" => return "0000000";  -- 8
+            when "1001" => return "0010000";  -- 9
+            when others => return "1111111";  -- blank
+        end case;
+    end function;
+
+begin
+
+    -- convert time_value (in seconds) to minutes and seconds
+    process(clk, reset)
+        variable minutes, seconds : unsigned(15 downto 0);
+        variable time_val : unsigned(15 downto 0);
+    begin
+        if reset = '1' then
+            min_tens <= (others => '0');
+            min_ones <= (others => '0');
+            sec_tens <= (others => '0');
+            sec_ones <= (others => '0');
+        elsif rising_edge(clk) then
+            time_val := unsigned(time_value);
+            
+            if time_val = 0 then
+                --00:00 when time is zero
+                min_tens <= "0000";
+                min_ones <= "0000";
+                sec_tens <= "0000";
+                sec_ones <= "0000";
+            elsif time_val > 5999 then
+                -- max display: 99:59
+                min_tens <= "1001";  -- 9
+                min_ones <= "1001";  -- 9
+                sec_tens <= "0101";  -- 5
+                sec_ones <= "1001";  -- 9
+            else
+                minutes := time_val / 60;  --for minutes 
+                seconds := time_val mod 60; --seconds
+
+                -- individual digits
+                min_tens <= std_logic_vector(to_unsigned(to_integer(minutes / 10), 4)); --converts for eveery digit
+                min_ones <= std_logic_vector(to_unsigned(to_integer(minutes mod 10), 4));
+                sec_tens <= std_logic_vector(to_unsigned(to_integer(seconds / 10), 4));
+                sec_ones <= std_logic_vector(to_unsigned(to_integer(seconds mod 10), 4));
+            end if;
+        end if;
+    end process;
+
+    -- refresh counter and digit selection for 4-digit display
+    process(clk, reset)
+    begin
+        if reset = '1' then
+            refresh_counter <= (others => '0');
+            digit_select <= (others => '0');
+            
+        elsif rising_edge(clk) then
+            refresh_counter <= refresh_counter + 1;
+            --update digit selection every 100MHz
+            if refresh_counter(15 downto 0) = x"FFFF" then
+                if digit_select = "11" then
+                    digit_select <= "00";
+                else
+                    digit_select <= digit_select + 1;
+                end if;
+            end if;
+        end if;
+    end process;
+
+    --  multiplexer for 4-digit display
+    process(digit_select, min_tens, min_ones, sec_tens, sec_ones)
+    begin
+        an <= "1111";  -- default: all off
+        current_digit <= "1111";  
+
+        case digit_select is
+            when "00" => 
+                an <= "1110"; 
+                current_digit <= sec_ones;  -- rightmost digit 
+            when "01" => 
+                an <= "1101"; 
+                current_digit <= sec_tens;  -- seconds tens
+            when "10" => 
+                an <= "1011"; 
+                current_digit <= min_ones;  -- minutes ones
+            when "11" => 
+                an <= "0111"; 
+                current_digit <= min_tens;  -- leftmost digit (minutes tens)
+            when others => 
+                an <= "1111"; 
+                current_digit <= "1111";
+        end case;
+    end process;
+
+    seg <= digit_to_7seg(current_digit);
+
+end Behavioral;
+
+MPG:
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.STD_LOGIC_UNSIGNED.ALL;
+
+entity MPG is
+    Port ( btn : in STD_LOGIC;
+           clk : in STD_LOGIC;
+           en : out STD_LOGIC);
+end MPG;
+ 
+architecture Behavioral of MPG is
+signal count : std_logic_vector (15 downto 0) := (others => '0');
+signal t : std_logic;
+signal q1, q2, q3 : std_logic;
+begin
+ 
+process (clk)
+begin
+    if (rising_edge(clk)) then
+        count <= count + 1;
+    end if;
+end process;
+ 
+t <= '1' when count = x"FFFF" else '0';
+ 
+process(clk)
+begin
+    if (rising_edge(clk)) then
+        if(t = '1') then
+            q1 <= btn;
+        end if;
+    end if;
+end process;
+ 
+process(clk)
+begin
+    if (rising_edge(clk)) then
+        q2 <= q1;
+   	q3 <= q2;
+    end if;
+end process;
+ 
+en <= q2 and not q3;
+ 
+end Behavioral;
+
+washing_machine_controller:
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity washing_machine_controller is
+    Port ( 
+        clk : in STD_LOGIC;
+        rst : in STD_LOGIC;
+
+        btnu : in STD_LOGIC;      -- start program
+        btnl : in STD_LOGIC;      -- select mode
+        btnr : in STD_LOGIC;      -- on/off washing machine
+
+        sw : in STD_LOGIC_VECTOR(10 downto 0);
+
+        led : out STD_LOGIC_VECTOR(10 downto 0);
+
+        seg : out STD_LOGIC_VECTOR(6 downto 0);
+        an : out STD_LOGIC_VECTOR(3 downto 0)
+    );
+end washing_machine_controller;
+
+architecture Behavioral of washing_machine_controller is
+
+    component MPG
+        Port (
+            btn : in STD_LOGIC;
+            clk : in STD_LOGIC;
+            en : out STD_LOGIC
+        );
+    end component;
+
+    component clock_divider
+        Generic (
+            DIVIDE_BY : integer := 100000000
+        );
+        Port (
+            clk_in : in STD_LOGIC;
+            reset : in STD_LOGIC;
+            clk_out : out STD_LOGIC;
+            pulse_1s : out STD_LOGIC
+        );
+    end component;
+
+    component wash_program_fsm
+        Port (
+            clk : in STD_LOGIC;
+            reset : in STD_LOGIC;
+            start_program : in STD_LOGIC;
+            pulse_1s : in STD_LOGIC;
+            temp : in STD_LOGIC_VECTOR(1 downto 0);
+            prewash : in STD_LOGIC;
+            extra_rinse : in STD_LOGIC;
+            door_closed : in STD_LOGIC;
+            params_valid : in STD_LOGIC;
+            total_time : in STD_LOGIC_VECTOR(15 downto 0);
+            program_running : out STD_LOGIC;
+            door_locked : out STD_LOGIC;
+            program_done : out STD_LOGIC;
+            current_phase : out STD_LOGIC_VECTOR(3 downto 0);
+            time_remaining : out STD_LOGIC_VECTOR(15 downto 0);
+            water_inlet : out STD_LOGIC;
+            water_outlet : out STD_LOGIC;
+            heater_on : out STD_LOGIC;
+            motor_speed : out STD_LOGIC_VECTOR(1 downto 0)
+        );
+    end component;
+
+    component mode_selector
+        Port (
+            clk : in STD_LOGIC;
+            reset : in STD_LOGIC;
+            machine_on : in STD_LOGIC;
+            select_btn : in STD_LOGIC;
+            mode : out STD_LOGIC_VECTOR(2 downto 0)
+        );
+    end component;
+
+    component parameter_controller
+        Port (
+            clk : in STD_LOGIC;
+            reset : in STD_LOGIC;
+            mode : in STD_LOGIC_VECTOR(2 downto 0);
+            switches : in STD_LOGIC_VECTOR(10 downto 0);
+            temp : out STD_LOGIC_VECTOR(1 downto 0);
+            speed : out STD_LOGIC_VECTOR(1 downto 0);
+            prewash : out STD_LOGIC;
+            extra_rinse : out STD_LOGIC;
+            params_valid : out STD_LOGIC
+        );
+    end component;
+
+    component time_calculator
+        Port (
+            clk : in STD_LOGIC;
+            reset : in STD_LOGIC;
+            temp : in STD_LOGIC_VECTOR(1 downto 0);
+            speed : in STD_LOGIC_VECTOR(1 downto 0);
+            prewash : in STD_LOGIC;
+            extra_rinse : in STD_LOGIC;
+            calculate : in STD_LOGIC;
+            total_time : out STD_LOGIC_VECTOR(15 downto 0)
+        );
+    end component;
+
+    component seven_segment_controller
+        Port (
+            clk : in STD_LOGIC;
+            reset : in STD_LOGIC;
+            time_value : in STD_LOGIC_VECTOR(15 downto 0);
+            seg : out STD_LOGIC_VECTOR(6 downto 0);
+            an : out STD_LOGIC_VECTOR(3 downto 0)
+        );
+    end component;
+
+    signal btnu_debounced, btnl_debounced, btnr_debounced : STD_LOGIC := '0';
+    signal machine_on, prewash, extra_rinse, params_valid : STD_LOGIC := '0';
+    signal temp : STD_LOGIC_VECTOR(1 downto 0) := "00";
+    signal speed : STD_LOGIC_VECTOR(1 downto 0) := "00";
+    signal mode : STD_LOGIC_VECTOR(2 downto 0) := "000";
+    signal total_time, time_remaining, display_time : STD_LOGIC_VECTOR(15 downto 0) := (others => '0');
+    signal program_running, door_locked, program_done, door_closed : STD_LOGIC := '0';
+    signal pulse_1s : STD_LOGIC := '0';
+    signal current_phase : STD_LOGIC_VECTOR(3 downto 0) := "0000";
+    signal water_inlet, water_outlet, heater_on : STD_LOGIC := '0';
+    signal motor_speed : STD_LOGIC_VECTOR(1 downto 0) := "00";
+    signal led_control : STD_LOGIC_VECTOR(10 downto 0) := (others => '0');
+    signal machine_power_on : STD_LOGIC := '0';
+
+    attribute KEEP : string;
+    attribute KEEP of water_inlet : signal is "TRUE";
+    attribute KEEP of water_outlet : signal is "TRUE";
+    attribute KEEP of heater_on : signal is "TRUE";
+    attribute KEEP of motor_speed : signal is "TRUE";
+
+begin
+
+    door_closed <= sw(0);
+
+    -- clock divider for 1-second pulses
+    -- for simulation use: 100000 for faster timing
+    clk_div: clock_divider 
+        generic map (DIVIDE_BY => 100000000)  -- we could change to 100000 for simulation
+        port map (
+            clk_in => clk, 
+            reset => rst, 
+            clk_out => open, 
+            pulse_1s => pulse_1s
+        );
+
+    mpg_btnu: MPG port map (btn => btnu, clk => clk, en => btnu_debounced);
+    mpg_btnl: MPG port map (btn => btnl, clk => clk, en => btnl_debounced);
+    mpg_btnr: MPG port map (btn => btnr, clk => clk, en => btnr_debounced);
+
+    -- Machine power control process
+    process(clk, rst)
+    begin
+        if rst = '1' then 
+            machine_power_on <= '0';
+        elsif rising_edge(clk) then
+            -- toggle power with BTNR
+            if btnr_debounced = '1' then 
+                machine_power_on <= not machine_power_on; 
+            end if;
+            
+            -- force machine off if door opens while not running
+            if door_closed = '0' and program_running = '0' then 
+                machine_power_on <= '0';
+            end if;
+        end if;
+    end process;
+
+    -- machine is on when power is on 
+    machine_on <= machine_power_on;
+
+    mode_sel: mode_selector port map (
+        clk => clk, 
+        reset => rst, 
+        machine_on => machine_on, 
+        select_btn => btnl_debounced, 
+        mode => mode
+    );
+
+    param_ctrl: parameter_controller port map (
+        clk => clk, 
+        reset => rst, 
+        mode => mode, 
+        switches => sw,
+        temp => temp, 
+        speed => speed, 
+        prewash => prewash,
+        extra_rinse => extra_rinse, 
+        params_valid => params_valid
+    );
+
+    time_calc: time_calculator port map (
+        clk => clk, 
+        reset => rst, 
+        temp => temp, 
+        speed => speed,
+        prewash => prewash, 
+        extra_rinse => extra_rinse,
+        calculate => params_valid, 
+        total_time => total_time
+    );
+
+    wash_fsm: wash_program_fsm port map (
+        clk => clk, 
+        reset => rst, 
+        start_program => btnu_debounced,
+        pulse_1s => pulse_1s, 
+        temp => temp, 
+        prewash => prewash,
+        extra_rinse => extra_rinse, 
+        door_closed => door_closed,
+        params_valid => params_valid, 
+        total_time => total_time,
+        program_running => program_running, 
+        door_locked => door_locked,
+        program_done => program_done, 
+        current_phase => current_phase,
+        time_remaining => time_remaining, 
+        water_inlet => water_inlet,
+        water_outlet => water_outlet, 
+        heater_on => heater_on,
+        motor_speed => motor_speed
+    );
+
+    -- display time logic: show remaining time when running, total time when not running
+    display_time <= time_remaining when program_running = '1' else total_time;
+
+    seven_seg: seven_segment_controller port map (
+        clk => clk, 
+        reset => rst, 
+        time_value => display_time,
+        seg => seg, 
+        an => an
+    );
+
+  -- LED control process - Fixed LED0 assignment order
+    process(clk, rst)
+    begin
+        if rst = '1' then
+            led_control <= (others => '0');
+        elsif rising_edge(clk) then
+            -- Initialize all LEDs to off FIRST
+            led_control <= (others => '0');
+            
+            -- THEN set the specific LEDs (after initialization)
+            -- LED 0 always shows door closed status
+            led_control(0) <= sw(0);
+            
+            -- LED 1 shows door locked status when program is running
+            led_control(1) <= door_locked;
+            
+            -- Only show parameter LEDs when machine is on
+            if machine_on = '1' then
+                case mode is
+                    when "000" =>  -- manual mode, LEDs follow switches
+                        led_control(2) <= sw(2);   -- 30 C
+                        led_control(3) <= sw(3);   -- 40 C
+                        led_control(4) <= sw(4);   -- 60 C
+                        led_control(5) <= sw(5);   -- 90 C
+                        led_control(6) <= sw(6);   -- 800rpm
+                        led_control(7) <= sw(7);   -- 1000rpm
+                        led_control(8) <= sw(8);   -- 1200rpm
+                        led_control(9) <= sw(9);   -- prewash
+                        led_control(10) <= sw(10); -- extra rinse
+                        
+                    when "001" =>  -- quick wash: 30 C, 1200rpm, no extras
+                        led_control(2) <= '1';     -- 30 C (SW2)
+                        led_control(8) <= '1';     -- 1200rpm (SW8)
+                        
+                    when "010" =>  -- shirts: 60 C, 800rpm, no extras
+                        led_control(4) <= '1';     -- 60 C (SW4)
+                        led_control(6) <= '1';     -- 800rpm (SW6)
+                        
+                    when "011" =>  -- dark colors: 40 C, 1000rpm, extra rinse
+                        led_control(3) <= '1';     -- 40 C (SW3)
+                        led_control(7) <= '1';     -- 1000rpm (SW7)
+                        led_control(10) <= '1';    -- extra rinse (SW10)
+                        
+                    when "100" =>  -- dirty laundry: 40 C, 1000rpm, prewash
+                        led_control(3) <= '1';     -- 40 C (SW3)
+                        led_control(7) <= '1';     -- 1000rpm (SW7)
+                        led_control(9) <= '1';     -- prewash (SW9)
+                        
+                    when "101" =>  -- antiallergic: 90 C, 1200rpm, extra rinse
+                        led_control(5) <= '1';     -- 90 C (SW5)
+                        led_control(8) <= '1';     -- 1200rpm (SW8)
+                        led_control(10) <= '1';    -- extra rinse (SW10)
+                        
+                    when others =>  -- default to manual behavior
+                        led_control(2) <= sw(2);
+                        led_control(3) <= sw(3);
+                        led_control(4) <= sw(4);
+                        led_control(5) <= sw(5);
+                        led_control(6) <= sw(6);
+                        led_control(7) <= sw(7);
+                        led_control(8) <= sw(8);
+                        led_control(9) <= sw(9);
+                        led_control(10) <= sw(10);
+                end case;
+            end if;
+        end if;
+    end process;
+    led <= led_control;
+
+end Behavioral;
+
+clock_divider:
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+-- takes a fast clock and makes it slower
+-- like turning 100mhz into 1hz (once per second)
+entity clock_divider is
+    Generic (
+        DIVIDE_BY : integer := 100000000
+    );
+    Port (
+        clk_in : in STD_LOGIC;
+        reset : in STD_LOGIC;
+        clk_out : out STD_LOGIC;
+        pulse_1s : out STD_LOGIC
+    );
+end clock_divider;
+
+architecture Behavioral of clock_divider is
+    signal counter : unsigned(26 downto 0) := (others => '0');  -- 27 bits can handle   100M
+    signal clk_div : STD_LOGIC := '0';
+    signal pulse_reg : STD_LOGIC := '0';
+begin
+    process(clk_in, reset)
+    begin
+        if reset = '1' then
+            counter <= (others => '0');
+            clk_div <= '0';
+            pulse_reg <= '0';
+        elsif rising_edge(clk_in) then
+            pulse_reg <= '0'; 
+            
+            -- divide_by-1 because we count from 0 (like 0,1,2...99,999,999 = 100 million counts)
+            if counter >= to_unsigned(DIVIDE_BY-1, 27) then
+                counter <= (others => '0');
+                clk_div <= not clk_div;
+                pulse_reg <= '1';  -- geerate pulse
+            else
+            -- counter hasn't reached limit yet, so just add 1 to it
+                counter <= counter + 1;
+            end if;
+        end if;
+    end process;
+    
+    clk_out <= clk_div;
+    pulse_1s <= pulse_reg;
+end Behavioral;
+
